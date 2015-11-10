@@ -4,7 +4,7 @@ import cookielib, urllib, urllib2
 import xbmcgui, xbmcplugin, xbmcaddon
 from mindmade import *
 import simplejson
-from BeautifulSoup import BeautifulSoup, SoupStrainer
+from bs4 import BeautifulSoup, SoupStrainer
 
 __author__     = "Andreas Wetzel"
 __copyright__  = "Copyright 2011-2015, mindmade.org"
@@ -140,7 +140,7 @@ def addDirectoryItem( name, params={}, image="", total=0):
 def show_main():
     content = fetchHttpWithCookies( TB_URL + "/tv/live_tv.php")
     ch_table = SoupStrainer('div',{'class': 'live-content'})
-    soup = BeautifulSoup( content, parseOnlyThese=ch_table)
+    soup = BeautifulSoup( content, "html.parser", parse_only=ch_table)
 
     # extract user id
     user_id = ""
@@ -155,7 +155,7 @@ def show_main():
     table = soup.find( "table", "show-listing")
 
     if not table: return
-    for tr in table.findAll( "tr", "playable"):
+    for tr in table.find_all( "tr", "playable"):
         a = tr.find( "a", "playIcon")
         if a:
             try:
