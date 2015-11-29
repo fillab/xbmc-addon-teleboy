@@ -29,9 +29,32 @@ API_KEY = base64.b64decode( "ZjBlN2JkZmI4MjJmYTg4YzBjN2ExM2Y3NTJhN2U4ZDVjMzc1N2E
 COOKIE_FILE = xbmc.translatePath( "special://home/addons/" + PLUGINID + "/resources/cookie.dat")
 
 
+session_cookie = ''
+user_id = ''
 pluginhandle = int(sys.argv[1])
 settings = xbmcaddon.Addon( id=PLUGINID)
 cookies = cookielib.LWPCookieJar( COOKIE_FILE)
+
+def updateSessionCookie( ck):
+    global session_cookie
+    for c in ck:
+        if c.name == "cinergy_s":
+            session_cookie = c.value
+            return True
+    session_cookie = ''
+    return False
+
+def updateUserID( content):
+    global user_id
+    lines = content.split( '\n')
+    for line in lines:
+        if "id: " in line:
+            dummy, uid = line.split( ": ")
+            user_id = uid[:-1]
+            log( "user id: " + user_id)
+            return True
+    user_id = ''
+    return False
 
 def ensure_login():
     global cookies
@@ -39,69 +62,59 @@ def ensure_login():
     urllib2.install_opener( opener)
     try:
         cookies.revert( ignore_discard=True)
-        for c in cookies:
-            if c.name == "cinergy_s":
-                return True
     except IOError:
         pass
-    cookies.clear()
-    fetchHttp( TB_URL + "/watchlist")
+
+    reply = fetchHttp( TB_URL + "/watchlist/")
+    if updateSessionCookie( cookies) and updateUserID( reply):
+        cookies.save( ignore_discard=True)
+        log( "login not required")
+        return True
 
     log( "logging in...")
-    login = settings.getSetting( id="login")
-    password = settings.getSetting( id="password")
     url = TB_URL + "/login_check"
-    args = { "login": login,
-             "password": password,
-             "keep_login": "1",
-             "x": "14", "y": "7" }
+    args = { "login": settings.getSetting( id="login"),
+             "password": settings.getSetting( id="password"),
+             "keep_login": "1" }
+    reply = fetchHttp( url, args, post=True)
 
-    reply = fetchHttp( url, args, post=True);
+    if updateSessionCookie( cookies) and updateUserID( reply):
+        cookies.save( ignore_discard=True)
+        log( "login ok")
+        return True
 
-    if "Falsche Eingaben" in reply or "Anmeldung war nicht erfolgreich" in reply:
-        log( "login failure")
-        log( reply)
-        notify( "Login Failure!", "Please set your login/password in the addon settings")
-        xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=False)
-        return False
-    res = cookies.save( ignore_discard=True)
-
-    log( "login ok")
-    return True
+    log( "login failure")
+    log( reply)
+    notify( "Login Failure!", "Please set your login/password in the addon settings")
+    os.unlink( xbmc.translatePath( COOKIE_FILE))
+    return False
 
 def fetchHttpWithCookies( url, args={}, hdrs={}, post=False):
-    if ensure_login():
-        html = fetchHttp( url, args, hdrs, post)
-        if "Bitte melde dich neu an" in html:
-            os.unlink( xbmc.translatePath( COOKIE_FILE));
-            if not ensure_login():
-                return "";
-            html = fetchHttp( url, args, hdrs, post)
-        return html
-    return ""
+    html = fetchHttp( url, args, hdrs, post)
+    if "Bitte melde dich neu an" in html:
+        log( "invalid session")
+        log ( html)
+        notify( "Invalid session!", "Please restart the addon to force a new login/session")
+        os.unlink( xbmc.translatePath( COOKIE_FILE))
+        return False
+    return html
 
 def get_stationLogoURL( station):
     return IMG_URL + "/t_station/%d/logo_s_big1.gif" % int(station)
 
-def get_videoJson( sid, user_id):
-    # get session key from cookie
-    global cookies
-    cookies.revert( ignore_discard=True)
-    session_cookie = ""
-    for c in cookies:
-        if c.name == "cinergy_s":
-            session_cookie = c.value
-            break
-
+def get_json( url, args={}):
     if (session_cookie == ""):
+        log( "no session cookie")
         notify( "Session cookie not found!", "Please set your login/password in the addon settings")
         return False
 
-    url = API_URL + "/users/%s/stream/live/%s" % (user_id, sid)
     hdrs = { "x-teleboy-apikey": API_KEY,
              "x-teleboy-session": session_cookie }
-    ans = fetchHttpWithCookies( url, { "alternative": "false" }, hdrs)
-    return simplejson.loads( ans)
+    ans = fetchHttpWithCookies( url, args, hdrs)
+    if ans:
+        return simplejson.loads( ans)
+    else:
+        return False
 
 ############
 # TEMP
@@ -132,7 +145,7 @@ def addDirectoryItem( name, params={}, image="", total=0):
         params_encoded[k] = params[k].encode( "utf-8")
     url = sys.argv[0] + '?' + urllib.urlencode( params_encoded)
 
-    return xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=url, listitem=li, isFolder = False, totalItems=total)
+    return xbmcplugin.addDirectoryItem( handle=pluginhandle, url=url, listitem=li, isFolder = False, totalItems=total)
 ###########
 # END TEMP
 ###########
@@ -142,19 +155,9 @@ def show_main():
     ch_table = SoupStrainer('div',{'class': 'live-content'})
     soup = BeautifulSoup( content, parseOnlyThese=ch_table)
 
-    # extract user id
-    user_id = ""
-    lines = content.split( '\n')
-    for line in lines:
-        if "id: " in line:
-            dummy, uid = line.split( ": ")
-            user_id = uid[:-1]
-            log( "user id: " + user_id)
-            break;
-
     table = soup.find( "table", "show-listing")
 
-    if not table: return
+    if not table: return False
     for tr in table.findAll( "tr", "playable"):
         a = tr.find( "a", "playIcon")
         if a:
@@ -169,25 +172,28 @@ def show_main():
 
                 img = get_stationLogoURL( id)
                 label = channel + ": " + show
-                p = tr.find( "p", "listing-info");
+                p = tr.find( "p", "listing-info")
                 if p:
                     desc = p.text
                     log( desc)
                     if desc.endswith( "&nbsp;|&nbsp;"): desc = desc[:-13]
                     label = label + " (" + desc + ")"
                 addDirectoryItem( label, { PARAMETER_KEY_STATION: str(id), 
-                                           PARAMETER_KEY_MODE: MODE_PLAY, 
-                                           PARAMETER_KEY_USERID: user_id }, img)
+                                           PARAMETER_KEY_MODE: MODE_PLAY }, img)
             except Exception as e:
                 log( "Exception: " + str(e))
                 log( "HTML(show): " + str( tr))
 
     xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=True)
+    return True
 
 #
 # xbmc entry point
 ############################################
 sayHi()
+
+if not ensure_login():
+    exit( 1)
 
 params = parameters_string_to_dict(sys.argv[2])
 mode = params.get(PARAMETER_KEY_MODE, "0")
@@ -195,17 +201,19 @@ mode = params.get(PARAMETER_KEY_MODE, "0")
 # depending on the mode, call the appropriate function to build the UI.
 if not sys.argv[2]:
     # new start
-    ok = show_main()
+    if not show_main():
+        xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=False)
 
 elif mode == MODE_PLAY:
     station = params[PARAMETER_KEY_STATION]
-    user_id = params[PARAMETER_KEY_USERID]
-    json = get_videoJson( station, user_id)
-    if not json:
+    url = API_URL + "/users/%s/stream/live/%s" % (user_id, station)
+    args = { "alternative": "false" }
+    live_stream = get_json( url, args)
+    if not live_stream:
         exit( 1)
 
-    title = json["data"]["epg"]["current"]["title"]        
-    url = json["data"]["stream"]["url"]
+    title = live_stream["data"]["epg"]["current"]["title"]
+    url = live_stream["data"]["stream"]["url"]
 
     if not url: exit( 1)
     img = get_stationLogoURL( station)
