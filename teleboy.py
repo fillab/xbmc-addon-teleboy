@@ -29,28 +29,32 @@ API_KEY = base64.b64decode( "ZjBlN2JkZmI4MjJmYTg4YzBjN2ExM2Y3NTJhN2U4ZDVjMzc1N2E
 COOKIE_FILE = xbmc.translatePath( "special://home/addons/" + PLUGINID + "/resources/cookie.dat")
 
 
+session_cookie = ''
+user_id = ''
 pluginhandle = int(sys.argv[1])
 settings = xbmcaddon.Addon( id=PLUGINID)
 cookies = cookielib.LWPCookieJar( COOKIE_FILE)
 
-def extractSessionCookie( ck):
-    session_cookie = ""
+def updateSessionCookie( ck):
+    global session_cookie
     for c in ck:
         if c.name == "cinergy_s":
             session_cookie = c.value
-            break
-    return session_cookie
+            return True
+    session_cookie = ''
+    return False
 
-def extractUserID( content):
-    user_id = ""
+def updateUserID( content):
+    global user_id
     lines = content.split( '\n')
     for line in lines:
         if "id: " in line:
             dummy, uid = line.split( ": ")
             user_id = uid[:-1]
             log( "user id: " + user_id)
-            break
-    return user_id
+            return True
+    user_id = ''
+    return False
 
 def ensure_login():
     global cookies
@@ -58,12 +62,14 @@ def ensure_login():
     urllib2.install_opener( opener)
     try:
         cookies.revert( ignore_discard=True)
-        if extractSessionCookie( cookies):
-            return True
     except IOError:
         pass
-    cookies.clear()
-    fetchHttp( TB_URL + "/watchlist/")
+
+    reply = fetchHttp( TB_URL + "/watchlist/")
+    if updateSessionCookie( cookies) and updateUserID( reply):
+        cookies.save( ignore_discard=True)
+        log( "login not required")
+        return True
 
     log( "logging in...")
     url = TB_URL + "/login_check"
@@ -72,35 +78,33 @@ def ensure_login():
              "keep_login": "1" }
     reply = fetchHttp( url, args, post=True)
 
-    if "Falsche Eingaben" in reply or "Anmeldung war nicht erfolgreich" in reply:
-        log( "login failure")
-        log( reply)
-        notify( "Login Failure!", "Please set your login/password in the addon settings")
-        return False
+    if updateSessionCookie( cookies) and updateUserID( reply):
+        cookies.save( ignore_discard=True)
+        log( "login ok")
+        return True
 
-    cookies.save( ignore_discard=True)
-    log( "login ok")
-    return True
+    log( "login failure")
+    log( reply)
+    notify( "Login Failure!", "Please set your login/password in the addon settings")
+    os.unlink( xbmc.translatePath( COOKIE_FILE))
+    return False
 
 def fetchHttpWithCookies( url, args={}, hdrs={}, post=False):
         html = fetchHttp( url, args, hdrs, post)
         if "Bitte melde dich neu an" in html:
+            log( "invalid session")
+            log ( html)
+            notify( "Invalid session!", "Please restart the addon to force a new login/session")
             os.unlink( xbmc.translatePath( COOKIE_FILE))
-            if not ensure_login():
-                return ""
-            html = fetchHttp( url, args, hdrs, post)
+            return False
         return html
 
 def get_stationLogoURL( station):
     return IMG_URL + "/t_station/%d/logo_s_big1.gif" % int(station)
 
 def get_json( sid, user_id):
-    # get session key from cookie
-    global cookies
-    cookies.revert( ignore_discard=True)
-    session_cookie = extractSessionCookie( cookies)
-
     if (session_cookie == ""):
+        log( "no session cookie")
         notify( "Session cookie not found!", "Please set your login/password in the addon settings")
         return False
 
@@ -153,7 +157,7 @@ def show_main():
     ch_table = SoupStrainer('div',{'class': 'live-content'})
     soup = BeautifulSoup( content, parseOnlyThese=ch_table)
 
-    user_id = extractUserID( content)
+    updateUserID( content)
 
     table = soup.find( "table", "show-listing")
 
