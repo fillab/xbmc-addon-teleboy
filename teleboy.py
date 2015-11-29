@@ -90,14 +90,14 @@ def ensure_login():
     return False
 
 def fetchHttpWithCookies( url, args={}, hdrs={}, post=False):
-        html = fetchHttp( url, args, hdrs, post)
-        if "Bitte melde dich neu an" in html:
-            log( "invalid session")
-            log ( html)
-            notify( "Invalid session!", "Please restart the addon to force a new login/session")
-            os.unlink( xbmc.translatePath( COOKIE_FILE))
-            return False
-        return html
+    html = fetchHttp( url, args, hdrs, post)
+    if "Bitte melde dich neu an" in html:
+        log( "invalid session")
+        log ( html)
+        notify( "Invalid session!", "Please restart the addon to force a new login/session")
+        os.unlink( xbmc.translatePath( COOKIE_FILE))
+        return False
+    return html
 
 def get_stationLogoURL( station):
     return IMG_URL + "/t_station/%d/logo_s_big1.gif" % int(station)
