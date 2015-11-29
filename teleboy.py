@@ -33,15 +33,33 @@ pluginhandle = int(sys.argv[1])
 settings = xbmcaddon.Addon( id=PLUGINID)
 cookies = cookielib.LWPCookieJar( COOKIE_FILE)
 
+def extractSessionCookie( ck):
+    session_cookie = ""
+    for c in ck:
+        if c.name == "cinergy_s":
+            session_cookie = c.value
+            break
+    return session_cookie
+
+def extractUserID( content):
+    user_id = ""
+    lines = content.split( '\n')
+    for line in lines:
+        if "id: " in line:
+            dummy, uid = line.split( ": ")
+            user_id = uid[:-1]
+            log( "user id: " + user_id)
+            break
+    return user_id
+
 def ensure_login():
     global cookies
     opener = urllib2.build_opener( urllib2.HTTPCookieProcessor(cookies))
     urllib2.install_opener( opener)
     try:
         cookies.revert( ignore_discard=True)
-        for c in cookies:
-            if c.name == "cinergy_s":
-                return True
+        if extractSessionCookie( cookies):
+            return True
     except IOError:
         pass
     cookies.clear()
@@ -86,11 +104,7 @@ def get_videoJson( sid, user_id):
     # get session key from cookie
     global cookies
     cookies.revert( ignore_discard=True)
-    session_cookie = ""
-    for c in cookies:
-        if c.name == "cinergy_s":
-            session_cookie = c.value
-            break
+    session_cookie = extractSessionCookie( cookies)
 
     if (session_cookie == ""):
         notify( "Session cookie not found!", "Please set your login/password in the addon settings")
@@ -100,7 +114,10 @@ def get_videoJson( sid, user_id):
     hdrs = { "x-teleboy-apikey": API_KEY,
              "x-teleboy-session": session_cookie }
     ans = fetchHttpWithCookies( url, { "alternative": "false" }, hdrs)
-    return simplejson.loads( ans)
+    if ans:
+        return simplejson.loads( ans)
+    else:
+        return False
 
 ############
 # TEMP
@@ -141,15 +158,7 @@ def show_main():
     ch_table = SoupStrainer('div',{'class': 'live-content'})
     soup = BeautifulSoup( content, parseOnlyThese=ch_table)
 
-    # extract user id
-    user_id = ""
-    lines = content.split( '\n')
-    for line in lines:
-        if "id: " in line:
-            dummy, uid = line.split( ": ")
-            user_id = uid[:-1]
-            log( "user id: " + user_id)
-            break
+    user_id = extractUserID( content)
 
     table = soup.find( "table", "show-listing")
 
