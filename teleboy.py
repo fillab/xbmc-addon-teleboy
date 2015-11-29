@@ -77,8 +77,8 @@ def ensure_login():
         log( reply)
         notify( "Login Failure!", "Please set your login/password in the addon settings")
         return False
-    res = cookies.save( ignore_discard=True)
 
+    cookies.save( ignore_discard=True)
     log( "login ok")
     return True
 
@@ -94,7 +94,7 @@ def fetchHttpWithCookies( url, args={}, hdrs={}, post=False):
 def get_stationLogoURL( station):
     return IMG_URL + "/t_station/%d/logo_s_big1.gif" % int(station)
 
-def get_videoJson( sid, user_id):
+def get_json( sid, user_id):
     # get session key from cookie
     global cookies
     cookies.revert( ignore_discard=True)
@@ -105,9 +105,10 @@ def get_videoJson( sid, user_id):
         return False
 
     url = API_URL + "/users/%s/stream/live/%s" % (user_id, sid)
+    args = { "alternative": "false" }
     hdrs = { "x-teleboy-apikey": API_KEY,
              "x-teleboy-session": session_cookie }
-    ans = fetchHttpWithCookies( url, { "alternative": "false" }, hdrs)
+    ans = fetchHttpWithCookies( url, args, hdrs)
     if ans:
         return simplejson.loads( ans)
     else:
@@ -207,12 +208,12 @@ if not sys.argv[2]:
 elif mode == MODE_PLAY:
     station = params[PARAMETER_KEY_STATION]
     user_id = params[PARAMETER_KEY_USERID]
-    json = get_videoJson( station, user_id)
-    if not json:
+    live_stream = get_json( station, user_id)
+    if not live_stream:
         exit( 1)
 
-    title = json["data"]["epg"]["current"]["title"]
-    url = json["data"]["stream"]["url"]
+    title = live_stream["data"]["epg"]["current"]["title"]
+    url = live_stream["data"]["stream"]["url"]
 
     if not url: exit( 1)
     img = get_stationLogoURL( station)
