@@ -66,13 +66,10 @@ def ensure_login():
     fetchHttp( TB_URL + "/watchlist/")
 
     log( "logging in...")
-    login = settings.getSetting( id="login")
-    password = settings.getSetting( id="password")
     url = TB_URL + "/login_check"
-    args = { "login": login,
-             "password": password,
+    args = { "login": settings.getSetting( id="login"),
+             "password": settings.getSetting( id="password"),
              "keep_login": "1" }
-
     reply = fetchHttp( url, args, post=True)
 
     if "Falsche Eingaben" in reply or "Anmeldung war nicht erfolgreich" in reply:
@@ -148,7 +145,7 @@ def addDirectoryItem( name, params={}, image="", total=0):
         params_encoded[k] = params[k].encode( "utf-8")
     url = sys.argv[0] + '?' + urllib.urlencode( params_encoded)
 
-    return xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=url, listitem=li, isFolder = False, totalItems=total)
+    return xbmcplugin.addDirectoryItem( handle=pluginhandle, url=url, listitem=li, isFolder = False, totalItems=total)
 ###########
 # END TEMP
 ###########
