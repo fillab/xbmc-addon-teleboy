@@ -155,8 +155,6 @@ def show_main():
     ch_table = SoupStrainer('div',{'class': 'live-content'})
     soup = BeautifulSoup( content, parseOnlyThese=ch_table)
 
-    updateUserID( content)
-
     table = soup.find( "table", "show-listing")
 
     if not table: return False
@@ -181,8 +179,7 @@ def show_main():
                     if desc.endswith( "&nbsp;|&nbsp;"): desc = desc[:-13]
                     label = label + " (" + desc + ")"
                 addDirectoryItem( label, { PARAMETER_KEY_STATION: str(id), 
-                                           PARAMETER_KEY_MODE: MODE_PLAY, 
-                                           PARAMETER_KEY_USERID: user_id }, img)
+                                           PARAMETER_KEY_MODE: MODE_PLAY }, img)
             except Exception as e:
                 log( "Exception: " + str(e))
                 log( "HTML(show): " + str( tr))
@@ -209,7 +206,6 @@ if not sys.argv[2]:
 
 elif mode == MODE_PLAY:
     station = params[PARAMETER_KEY_STATION]
-    user_id = params[PARAMETER_KEY_USERID]
     url = API_URL + "/users/%s/stream/live/%s" % (user_id, station)
     args = { "alternative": "false" }
     live_stream = get_json( url, args)
