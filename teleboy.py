@@ -45,7 +45,7 @@ def ensure_login():
     except IOError:
         pass
     cookies.clear()
-    fetchHttp( TB_URL + "/watchlist")
+    fetchHttp( TB_URL + "/watchlist/")
 
     log( "logging in...")
     login = settings.getSetting( id="login")
@@ -53,10 +53,9 @@ def ensure_login():
     url = TB_URL + "/login_check"
     args = { "login": login,
              "password": password,
-             "keep_login": "1",
-             "x": "14", "y": "7" }
+             "keep_login": "1" }
 
-    reply = fetchHttp( url, args, post=True);
+    reply = fetchHttp( url, args, post=True)
 
     if "Falsche Eingaben" in reply or "Anmeldung war nicht erfolgreich" in reply:
         log( "login failure")
@@ -73,9 +72,9 @@ def fetchHttpWithCookies( url, args={}, hdrs={}, post=False):
     if ensure_login():
         html = fetchHttp( url, args, hdrs, post)
         if "Bitte melde dich neu an" in html:
-            os.unlink( xbmc.translatePath( COOKIE_FILE));
+            os.unlink( xbmc.translatePath( COOKIE_FILE))
             if not ensure_login():
-                return "";
+                return ""
             html = fetchHttp( url, args, hdrs, post)
         return html
     return ""
@@ -150,7 +149,7 @@ def show_main():
             dummy, uid = line.split( ": ")
             user_id = uid[:-1]
             log( "user id: " + user_id)
-            break;
+            break
 
     table = soup.find( "table", "show-listing")
 
@@ -169,7 +168,7 @@ def show_main():
 
                 img = get_stationLogoURL( id)
                 label = channel + ": " + show
-                p = tr.find( "p", "listing-info");
+                p = tr.find( "p", "listing-info")
                 if p:
                     desc = p.text
                     log( desc)
@@ -204,7 +203,7 @@ elif mode == MODE_PLAY:
     if not json:
         exit( 1)
 
-    title = json["data"]["epg"]["current"]["title"]        
+    title = json["data"]["epg"]["current"]["title"]
     url = json["data"]["stream"]["url"]
 
     if not url: exit( 1)
