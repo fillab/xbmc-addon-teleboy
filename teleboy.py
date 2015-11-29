@@ -102,14 +102,12 @@ def fetchHttpWithCookies( url, args={}, hdrs={}, post=False):
 def get_stationLogoURL( station):
     return IMG_URL + "/t_station/%d/logo_s_big1.gif" % int(station)
 
-def get_json( sid, user_id):
+def get_json( url, args={}):
     if (session_cookie == ""):
         log( "no session cookie")
         notify( "Session cookie not found!", "Please set your login/password in the addon settings")
         return False
 
-    url = API_URL + "/users/%s/stream/live/%s" % (user_id, sid)
-    args = { "alternative": "false" }
     hdrs = { "x-teleboy-apikey": API_KEY,
              "x-teleboy-session": session_cookie }
     ans = fetchHttpWithCookies( url, args, hdrs)
@@ -212,7 +210,9 @@ if not sys.argv[2]:
 elif mode == MODE_PLAY:
     station = params[PARAMETER_KEY_STATION]
     user_id = params[PARAMETER_KEY_USERID]
-    live_stream = get_json( station, user_id)
+    url = API_URL + "/users/%s/stream/live/%s" % (user_id, station)
+    args = { "alternative": "false" }
+    live_stream = get_json( url, args)
     if not live_stream:
         exit( 1)
 
