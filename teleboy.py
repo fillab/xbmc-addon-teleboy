@@ -76,7 +76,6 @@ def ensure_login():
         log( "login failure")
         log( reply)
         notify( "Login Failure!", "Please set your login/password in the addon settings")
-        xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=False)
         return False
     res = cookies.save( ignore_discard=True)
 
@@ -84,7 +83,6 @@ def ensure_login():
     return True
 
 def fetchHttpWithCookies( url, args={}, hdrs={}, post=False):
-    if ensure_login():
         html = fetchHttp( url, args, hdrs, post)
         if "Bitte melde dich neu an" in html:
             os.unlink( xbmc.translatePath( COOKIE_FILE))
@@ -92,7 +90,6 @@ def fetchHttpWithCookies( url, args={}, hdrs={}, post=False):
                 return ""
             html = fetchHttp( url, args, hdrs, post)
         return html
-    return ""
 
 def get_stationLogoURL( station):
     return IMG_URL + "/t_station/%d/logo_s_big1.gif" % int(station)
@@ -159,7 +156,7 @@ def show_main():
 
     table = soup.find( "table", "show-listing")
 
-    if not table: return
+    if not table: return False
     for tr in table.findAll( "tr", "playable"):
         a = tr.find( "a", "playIcon")
         if a:
@@ -188,11 +185,15 @@ def show_main():
                 log( "HTML(show): " + str( tr))
 
     xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=True)
+    return True
 
 #
 # xbmc entry point
 ############################################
 sayHi()
+
+if not ensure_login():
+    exit( 1)
 
 params = parameters_string_to_dict(sys.argv[2])
 mode = params.get(PARAMETER_KEY_MODE, "0")
@@ -200,7 +201,8 @@ mode = params.get(PARAMETER_KEY_MODE, "0")
 # depending on the mode, call the appropriate function to build the UI.
 if not sys.argv[2]:
     # new start
-    ok = show_main()
+    if not show_main():
+        xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=False)
 
 elif mode == MODE_PLAY:
     station = params[PARAMETER_KEY_STATION]
