@@ -16,6 +16,8 @@ __email__      = "xbmc@mindmade.org"
 ############################################
 PLUGINID = "plugin.video.teleboy"
 
+MODE_FAV = "live_fav"
+MODE_ALL = "live_all"
 MODE_PLAY = "play"
 PARAMETER_KEY_MODE = "mode"
 PARAMETER_KEY_STATION = "station"
@@ -117,25 +119,35 @@ def get_json( url, args={}):
 ############
 # TEMP
 ############
-def addDirectoryItem( name, params={}, image=""):
+def addDirectoryItem( name, params={}, image="", folder=False):
     '''Add a list item to the XBMC UI.'''
     name = htmldecode( name)
 
-    img = image if image else "DefaultVideo.png"
-    li = xbmcgui.ListItem( name, iconImage=img, thumbnailImage=image)
-    li.setProperty( "Video", "true")
+    if folder:
+      img = "DefaultFolder.png"
+      li = xbmcgui.ListItem( name, iconImage=img)
+    else:
+      img = image if image else "DefaultVideo.png"
+      li = xbmcgui.ListItem( name, iconImage=img, thumbnailImage=image)
+      li.setProperty( "Video", "true")
 
     params_encoded = dict()
     for k in params.keys():
         params_encoded[k] = params[k].encode( "utf-8")
     url = sys.argv[0] + '?' + urllib.urlencode( params_encoded)
 
-    return xbmcplugin.addDirectoryItem( handle=pluginhandle, url=url, listitem=li, isFolder = False, totalItems=0)
+    return xbmcplugin.addDirectoryItem( handle=pluginhandle, url=url, listitem=li, isFolder=folder, totalItems=0)
 ###########
 # END TEMP
 ###########
 
-def show_channels():
+def show_main_menu():
+    addDirectoryItem( 'LiveTV - Favourites', { PARAMETER_KEY_MODE: MODE_FAV }, folder = True)
+    addDirectoryItem( 'LiveTV - All channels', { PARAMETER_KEY_MODE: MODE_ALL }, folder = True)
+    xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=True)
+    return True
+
+def show_channels( all_channels):
     url = API_URL + "/users/%s/stations" % (user_id)
     user_channels = get_json( url)
 
@@ -152,7 +164,7 @@ def show_channels():
     if not items: return False
     for itm in items:
         id = itm["station_id"]
-        if id in user_channels:
+        if (all_channels) or (id in user_channels):
           channel = itm["station"]["name"]
           #channel = itm["station"]["label"]
           show = itm["title"]
@@ -178,6 +190,11 @@ def show_channels():
 ############################################
 sayHi()
 
+if not sys.argv[2]:
+    # new start
+    show_main_menu()
+    exit (1)
+
 if not ensure_login():
     exit( 1)
 
@@ -185,9 +202,12 @@ params = dict(urlparse.parse_qsl(sys.argv[2][1:]))
 mode = params.get(PARAMETER_KEY_MODE, "0")
 
 # depending on the mode, call the appropriate function to build the UI or play video
-if not sys.argv[2]:
-    # new start
-    if not show_channels():
+if mode == MODE_FAV:
+    if not show_channels(all_channels=False):
+        xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=False)
+
+elif mode == MODE_ALL:
+    if not show_channels(all_channels=True):
         xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=False)
 
 elif mode == MODE_PLAY:
