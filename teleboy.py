@@ -4,7 +4,6 @@ import cookielib, urllib, urllib2, urlparse
 import xbmcgui, xbmcplugin, xbmcaddon
 from mindmade import *
 import simplejson
-from BeautifulSoup import BeautifulSoup, SoupStrainer
 
 __author__     = "Andreas Wetzel"
 __copyright__  = "Copyright 2011-2015, mindmade.org"
@@ -90,7 +89,7 @@ def ensure_login():
 
 def fetchHttpWithCookies( url, args={}, hdrs={}, post=False):
     html = fetchHttp( url, args, hdrs, post)
-    if "Bitte melde dich neu an" in html:
+    if "requires active login" in html:
         log( "invalid session")
         log ( html)
         notify( "Invalid session!", "Please restart the addon to force a new login/session")
@@ -118,12 +117,11 @@ def get_json( url, args={}):
 ############
 # TEMP
 ############
-def addDirectoryItem( name, params={}, image="", total=0):
+def addDirectoryItem( name, params={}, image=""):
     '''Add a list item to the XBMC UI.'''
     name = htmldecode( name)
 
-    img = "DefaultVideo.png"
-    if image != "": img = image
+    img = image if image else "DefaultVideo.png"
     li = xbmcgui.ListItem( name, iconImage=img, thumbnailImage=image)
     li.setProperty( "Video", "true")
 
@@ -132,44 +130,45 @@ def addDirectoryItem( name, params={}, image="", total=0):
         params_encoded[k] = params[k].encode( "utf-8")
     url = sys.argv[0] + '?' + urllib.urlencode( params_encoded)
 
-    return xbmcplugin.addDirectoryItem( handle=pluginhandle, url=url, listitem=li, isFolder = False, totalItems=total)
+    return xbmcplugin.addDirectoryItem( handle=pluginhandle, url=url, listitem=li, isFolder = False, totalItems=0)
 ###########
 # END TEMP
 ###########
 
 def show_channels():
-    content = fetchHttpWithCookies( TB_URL + "/tv/live_tv.php")
-    ch_table = SoupStrainer('div',{'class': 'live-content'})
-    soup = BeautifulSoup( content, parseOnlyThese=ch_table)
+    url = API_URL + "/users/%s/stations" % (user_id)
+    user_channels = get_json( url)
 
-    table = soup.find( "table", "show-listing")
+    if not user_channels: return False
+    user_channels = user_channels["data"]["items"]
 
-    if not table: return False
-    for tr in table.findAll( "tr", "playable"):
-        a = tr.find( "a", "playIcon")
-        if a:
-            try:
-                id = int( a["data-stationid"])
-                channel = htmldecode( tr.find( "td", "station").find( "img")["alt"])
-                details = tr.find( "td", "show-details")
-                if (details.find( "a")):
-                    show = htmldecode( details.find( "a")["title"])
-                else:
-                    show = details.text
+    url = API_URL + "/users/%s/broadcasts/now" % (user_id)
+    args = { "expand": "station", "stream": "true" }
+    broadcasts = get_json( url, args)
 
-                img = get_stationLogoURL( id)
-                label = channel + ": " + show
-                p = tr.find( "p", "listing-info")
-                if p:
-                    desc = p.text
-                    log( desc)
-                    if desc.endswith( "&nbsp;|&nbsp;"): desc = desc[:-13]
-                    label = label + " (" + desc + ")"
-                addDirectoryItem( label, { PARAMETER_KEY_STATION: str(id), 
-                                           PARAMETER_KEY_MODE: MODE_PLAY }, img)
-            except Exception as e:
-                log( "Exception: " + str(e))
-                log( "HTML(show): " + str( tr))
+    if not broadcasts: return False
+    items = broadcasts["data"]["items"]
+
+    if not items: return False
+    for itm in items:
+        id = itm["station_id"]
+        if id in user_channels:
+          channel = itm["station"]["name"]
+          #channel = itm["station"]["label"]
+          show = itm["title"]
+          duration = itm["duration"]
+          genre = itm["genre_id"] if "genre_id" in itm else 0   # To be translated
+
+          img = get_stationLogoURL( id)
+
+          label = channel + ": " + show
+          label = "%s (noch %s')" % (label, duration)
+
+          addDirectoryItem( label, { PARAMETER_KEY_STATION: str(id), 
+                                     PARAMETER_KEY_MODE: MODE_PLAY }, img)
+
+          ll = "%s - %s - genre: %s" % (id, label, genre)
+          log( ll)
 
     xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=True)
     return True
