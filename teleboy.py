@@ -1,6 +1,6 @@
 
 import os, re, sys, base64
-import cookielib, urllib, urllib2
+import cookielib, urllib, urllib2, urlparse
 import xbmcgui, xbmcplugin, xbmcaddon
 from mindmade import *
 import simplejson
@@ -20,7 +20,6 @@ PLUGINID = "plugin.video.teleboy"
 MODE_PLAY = "play"
 PARAMETER_KEY_MODE = "mode"
 PARAMETER_KEY_STATION = "station"
-PARAMETER_KEY_USERID = "userid"
 
 TB_URL = "http://www.teleboy.ch"
 IMG_URL = "http://media.cinergy.ch"
@@ -119,25 +118,13 @@ def get_json( url, args={}):
 ############
 # TEMP
 ############
-def parameters_string_to_dict( parameters):
-    ''' Convert parameters encoded in a URL to a dict. '''
-    paramDict = {}
-    if parameters:
-        paramPairs = parameters[1:].split("&")
-        for paramsPair in paramPairs:
-            paramSplits = paramsPair.split('=')
-            if (len(paramSplits)) == 2:
-                paramDict[paramSplits[0]] = urllib.unquote( paramSplits[1])
-    return paramDict
-
 def addDirectoryItem( name, params={}, image="", total=0):
     '''Add a list item to the XBMC UI.'''
+    name = htmldecode( name)
+
     img = "DefaultVideo.png"
     if image != "": img = image
-
-    name = htmldecode( name)
     li = xbmcgui.ListItem( name, iconImage=img, thumbnailImage=image)
-
     li.setProperty( "Video", "true")
 
     params_encoded = dict()
@@ -150,7 +137,7 @@ def addDirectoryItem( name, params={}, image="", total=0):
 # END TEMP
 ###########
 
-def show_main():
+def show_channels():
     content = fetchHttpWithCookies( TB_URL + "/tv/live_tv.php")
     ch_table = SoupStrainer('div',{'class': 'live-content'})
     soup = BeautifulSoup( content, parseOnlyThese=ch_table)
@@ -195,13 +182,13 @@ sayHi()
 if not ensure_login():
     exit( 1)
 
-params = parameters_string_to_dict(sys.argv[2])
+params = dict(urlparse.parse_qsl(sys.argv[2][1:]))
 mode = params.get(PARAMETER_KEY_MODE, "0")
 
-# depending on the mode, call the appropriate function to build the UI.
+# depending on the mode, call the appropriate function to build the UI or play video
 if not sys.argv[2]:
     # new start
-    if not show_main():
+    if not show_channels():
         xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=False)
 
 elif mode == MODE_PLAY:
