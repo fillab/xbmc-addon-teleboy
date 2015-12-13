@@ -1,7 +1,8 @@
 
-import os, re, sys, base64
+import os, re, sys, base64, datetime
 import cookielib, urllib, urllib2, urlparse
 import xbmcgui, xbmcplugin, xbmcaddon
+import dateutil.parser, dateutil.tz
 from mindmade import *
 import simplejson
 
@@ -31,7 +32,10 @@ COOKIE_FILE = xbmc.translatePath( "special://home/addons/" + PLUGINID + "/resour
 
 session_cookie = ''
 user_id = ''
-pluginhandle = int(sys.argv[1])
+plugin_url = sys.argv[0]
+plugin_handle = int(sys.argv[1])
+plugin_params = sys.argv[2][1:]
+plugin_refresh = plugin_url + '?' + plugin_params
 settings = xbmcaddon.Addon( id=PLUGINID)
 cookies = cookielib.LWPCookieJar( COOKIE_FILE)
 
@@ -130,13 +134,14 @@ def addDirectoryItem( name, params={}, image="", folder=False):
       img = image if image else "DefaultVideo.png"
       li = xbmcgui.ListItem( name, iconImage=img, thumbnailImage=image)
       li.setProperty( "Video", "true")
+      li.addContextMenuItems( [( 'Refresh', 'XBMC.Container.Update(%s)' % (plugin_refresh) )] )
 
     params_encoded = dict()
     for k in params.keys():
         params_encoded[k] = params[k].encode( "utf-8")
-    url = sys.argv[0] + '?' + urllib.urlencode( params_encoded)
+    url = plugin_url + '?' + urllib.urlencode( params_encoded)
 
-    return xbmcplugin.addDirectoryItem( handle=pluginhandle, url=url, listitem=li, isFolder=folder, totalItems=0)
+    return xbmcplugin.addDirectoryItem( handle=plugin_handle, url=url, listitem=li, isFolder=folder, totalItems=0)
 ###########
 # END TEMP
 ###########
@@ -144,7 +149,7 @@ def addDirectoryItem( name, params={}, image="", folder=False):
 def show_main_menu():
     addDirectoryItem( 'LiveTV - Favourites', { PARAMETER_KEY_MODE: MODE_FAV }, folder = True)
     addDirectoryItem( 'LiveTV - All channels', { PARAMETER_KEY_MODE: MODE_ALL }, folder = True)
-    xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=True)
+    xbmcplugin.endOfDirectory( handle=plugin_handle, succeeded=True)
     return True
 
 def show_channels( all_channels):
@@ -168,13 +173,21 @@ def show_channels( all_channels):
           channel = itm["station"]["name"]
           #channel = itm["station"]["label"]
           show = itm["title"]
-          duration = itm["duration"]
+
+          if "end" in itm:
+            time_end = dateutil.parser.parse(itm["end"])
+            time_now = datetime.datetime.now(dateutil.tz.tzlocal())
+            time_left = time_end - time_now
+            time_left_m = int(round((time_left.days*24*3600 + time_left.seconds + 0.0)/60))
+          else:
+            time_left_m = -1
+
           genre = itm["genre_id"] if "genre_id" in itm else 0   # To be translated
 
           img = get_stationLogoURL( id)
 
           label = channel + ": " + show
-          label = "%s (noch %s')" % (label, duration)
+          if time_left_m >= 0: label = "%s (noch %s')" % (label, time_left_m)
 
           addDirectoryItem( label, { PARAMETER_KEY_STATION: str(id), 
                                      PARAMETER_KEY_MODE: MODE_PLAY }, img)
@@ -182,15 +195,15 @@ def show_channels( all_channels):
           ll = "%s - %s - genre: %s" % (id, label, genre)
           log( ll)
 
-    xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=True)
+    xbmcplugin.endOfDirectory( handle=plugin_handle, succeeded=True)
     return True
 
 #
 # xbmc entry point
 ############################################
-sayHi()
+#sayHi()
 
-if not sys.argv[2]:
+if not plugin_params:
     # new start
     show_main_menu()
     exit (1)
@@ -198,17 +211,17 @@ if not sys.argv[2]:
 if not ensure_login():
     exit( 1)
 
-params = dict(urlparse.parse_qsl(sys.argv[2][1:]))
+params = dict(urlparse.parse_qsl(plugin_params))
 mode = params.get(PARAMETER_KEY_MODE, "0")
 
 # depending on the mode, call the appropriate function to build the UI or play video
 if mode == MODE_FAV:
     if not show_channels(all_channels=False):
-        xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=False)
+        xbmcplugin.endOfDirectory( handle=plugin_handle, succeeded=False)
 
 elif mode == MODE_ALL:
     if not show_channels(all_channels=True):
-        xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=False)
+        xbmcplugin.endOfDirectory( handle=plugin_handle, succeeded=False)
 
 elif mode == MODE_PLAY:
     station = params[PARAMETER_KEY_STATION]
