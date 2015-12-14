@@ -19,9 +19,12 @@ PLUGINID = "plugin.video.teleboy"
 
 MODE_FAV = "live_fav"
 MODE_ALL = "live_all"
-MODE_PLAY = "play"
+MODE_RECS = "recs_ready"
+MODE_PLAY = "play_live"
+MODE_REPLAY = "play_record"
 PARAMETER_KEY_MODE = "mode"
 PARAMETER_KEY_STATION = "station"
+PARAMETER_KEY_ASSETID = "assetid"
 
 TB_URL = "http://www.teleboy.ch"
 IMG_URL = "http://media.cinergy.ch"
@@ -149,6 +152,7 @@ def addDirectoryItem( name, params={}, image="", folder=False):
 def show_main_menu():
     addDirectoryItem( 'LiveTV - Favourites', { PARAMETER_KEY_MODE: MODE_FAV }, folder = True)
     addDirectoryItem( 'LiveTV - All channels', { PARAMETER_KEY_MODE: MODE_ALL }, folder = True)
+    addDirectoryItem( 'Recordings - Ready', { PARAMETER_KEY_MODE: MODE_RECS }, folder = True)
     xbmcplugin.endOfDirectory( handle=plugin_handle, succeeded=True)
     return True
 
@@ -198,6 +202,40 @@ def show_channels( all_channels):
     xbmcplugin.endOfDirectory( handle=plugin_handle, succeeded=True)
     return True
 
+def show_recordings():
+    url = API_URL + "/users/%s/records/ready" % (user_id)
+    args = { "limit": "500", "skip": "0" }
+    recordings = get_json( url)
+
+    if not recordings: return False
+    items = recordings["data"]["items"]
+
+    if not items: return False
+    for itm in items:
+        station_id = itm["station_id"]
+        id = itm["id"]
+        channel = itm["label"]
+        show = itm["title"]
+        rec_begin = dateutil.parser.parse(itm["begin"])
+        rec_end = dateutil.parser.parse(itm["end"])
+        duration = rec_end - rec_begin
+        duration_m = int(round((duration.days*24*3600 + duration.seconds + 0.0)/60))
+        genre = itm["genre"] if "genre" in itm else ""
+
+        img = get_stationLogoURL( station_id)
+
+        label = "%s: %s | %s (%s')" % (channel, show, genre, duration_m)
+
+        addDirectoryItem( label, { PARAMETER_KEY_STATION: str(station_id), 
+                                   PARAMETER_KEY_ASSETID: str(id), 
+                                   PARAMETER_KEY_MODE: MODE_REPLAY }, img)
+
+        ll = "%s - %s" % (id, label)
+        log( ll)
+
+    xbmcplugin.endOfDirectory( handle=plugin_handle, succeeded=True)
+    return True
+
 #
 # xbmc entry point
 ############################################
@@ -223,6 +261,11 @@ elif mode == MODE_ALL:
     if not show_channels(all_channels=True):
         xbmcplugin.endOfDirectory( handle=plugin_handle, succeeded=False)
 
+elif mode == MODE_RECS:
+    if not show_recordings():
+        notify( "No recordings found!", "You do not have any recording ready")
+        xbmcplugin.endOfDirectory( handle=plugin_handle, succeeded=False)
+
 elif mode == MODE_PLAY:
     station = params[PARAMETER_KEY_STATION]
     url = API_URL + "/users/%s/stream/live/%s" % (user_id, station)
@@ -232,6 +275,26 @@ elif mode == MODE_PLAY:
         exit( 1)
 
     title = live_stream["data"]["epg"]["current"]["title"]
+    url = live_stream["data"]["stream"]["url"]
+
+    if not url: exit( 1)
+    img = get_stationLogoURL( station)
+
+    li = xbmcgui.ListItem( title, iconImage=img, thumbnailImage=img)
+    li.setProperty( "IsPlayable", "true")
+    li.setProperty( "Video", "true")
+
+    xbmc.Player().play( url, li)
+
+elif mode == MODE_REPLAY:
+    station = params[PARAMETER_KEY_STATION]
+    asset_id = params[PARAMETER_KEY_ASSETID]
+    url = API_URL + "/users/%s/stream/record/%s" % (user_id, asset_id)
+    live_stream = get_json( url)
+    if not live_stream:
+        exit( 1)
+
+    title = live_stream["data"]["record"]["title"]
     url = live_stream["data"]["stream"]["url"]
 
     if not url: exit( 1)
