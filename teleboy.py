@@ -1,10 +1,10 @@
 
-import os, re, sys, base64
+import os, re, sys, base64, datetime
 import cookielib, urllib, urllib2, urlparse
 import xbmcgui, xbmcplugin, xbmcaddon
+import dateutil.parser, dateutil.tz
 from mindmade import *
 import simplejson
-from BeautifulSoup import BeautifulSoup, SoupStrainer
 
 __author__     = "Andreas Wetzel"
 __copyright__  = "Copyright 2011-2015, mindmade.org"
@@ -17,9 +17,14 @@ __email__      = "xbmc@mindmade.org"
 ############################################
 PLUGINID = "plugin.video.teleboy"
 
-MODE_PLAY = "play"
+MODE_FAV = "live_fav"
+MODE_ALL = "live_all"
+MODE_RECS = "recs_ready"
+MODE_PLAY = "play_live"
+MODE_REPLAY = "play_record"
 PARAMETER_KEY_MODE = "mode"
 PARAMETER_KEY_STATION = "station"
+PARAMETER_KEY_ASSETID = "assetid"
 
 TB_URL = "http://www.teleboy.ch"
 IMG_URL = "http://media.cinergy.ch"
@@ -30,7 +35,10 @@ COOKIE_FILE = xbmc.translatePath( "special://home/addons/" + PLUGINID + "/resour
 
 session_cookie = ''
 user_id = ''
-pluginhandle = int(sys.argv[1])
+plugin_url = sys.argv[0]
+plugin_handle = int(sys.argv[1])
+plugin_params = sys.argv[2][1:]
+plugin_refresh = plugin_url + '?' + plugin_params
 settings = xbmcaddon.Addon( id=PLUGINID)
 cookies = cookielib.LWPCookieJar( COOKIE_FILE)
 
@@ -90,7 +98,7 @@ def ensure_login():
 
 def fetchHttpWithCookies( url, args={}, hdrs={}, post=False):
     html = fetchHttp( url, args, hdrs, post)
-    if "Bitte melde dich neu an" in html:
+    if "requires active login" in html:
         log( "invalid session")
         log ( html)
         notify( "Invalid session!", "Please restart the addon to force a new login/session")
@@ -118,78 +126,145 @@ def get_json( url, args={}):
 ############
 # TEMP
 ############
-def addDirectoryItem( name, params={}, image="", total=0):
+def addDirectoryItem( name, params={}, image="", folder=False):
     '''Add a list item to the XBMC UI.'''
     name = htmldecode( name)
 
-    img = "DefaultVideo.png"
-    if image != "": img = image
-    li = xbmcgui.ListItem( name, iconImage=img, thumbnailImage=image)
-    li.setProperty( "Video", "true")
+    if folder:
+      img = "DefaultFolder.png"
+      li = xbmcgui.ListItem( name, iconImage=img)
+    else:
+      img = image if image else "DefaultVideo.png"
+      li = xbmcgui.ListItem( name, iconImage=img, thumbnailImage=image)
+      li.setProperty( "Video", "true")
+      li.addContextMenuItems( [( 'Refresh', 'XBMC.Container.Update(%s)' % (plugin_refresh) )] )
 
     params_encoded = dict()
     for k in params.keys():
         params_encoded[k] = params[k].encode( "utf-8")
-    url = sys.argv[0] + '?' + urllib.urlencode( params_encoded)
+    url = plugin_url + '?' + urllib.urlencode( params_encoded)
 
-    return xbmcplugin.addDirectoryItem( handle=pluginhandle, url=url, listitem=li, isFolder = False, totalItems=total)
+    return xbmcplugin.addDirectoryItem( handle=plugin_handle, url=url, listitem=li, isFolder=folder, totalItems=0)
 ###########
 # END TEMP
 ###########
 
-def show_channels():
-    content = fetchHttpWithCookies( TB_URL + "/tv/live_tv.php")
-    ch_table = SoupStrainer('div',{'class': 'live-content'})
-    soup = BeautifulSoup( content, parseOnlyThese=ch_table)
+def show_main_menu():
+    addDirectoryItem( 'LiveTV - Favourites', { PARAMETER_KEY_MODE: MODE_FAV }, folder = True)
+    addDirectoryItem( 'LiveTV - All channels', { PARAMETER_KEY_MODE: MODE_ALL }, folder = True)
+    addDirectoryItem( 'Recordings - Ready', { PARAMETER_KEY_MODE: MODE_RECS }, folder = True)
+    xbmcplugin.endOfDirectory( handle=plugin_handle, succeeded=True)
+    return True
 
-    table = soup.find( "table", "show-listing")
+def show_channels( all_channels):
+    url = API_URL + "/users/%s/stations" % (user_id)
+    user_channels = get_json( url)
 
-    if not table: return False
-    for tr in table.findAll( "tr", "playable"):
-        a = tr.find( "a", "playIcon")
-        if a:
-            try:
-                id = int( a["data-stationid"])
-                channel = htmldecode( tr.find( "td", "station").find( "img")["alt"])
-                details = tr.find( "td", "show-details")
-                if (details.find( "a")):
-                    show = htmldecode( details.find( "a")["title"])
-                else:
-                    show = details.text
+    if not user_channels: return False
+    user_channels = user_channels["data"]["items"]
 
-                img = get_stationLogoURL( id)
-                label = channel + ": " + show
-                p = tr.find( "p", "listing-info")
-                if p:
-                    desc = p.text
-                    log( desc)
-                    if desc.endswith( "&nbsp;|&nbsp;"): desc = desc[:-13]
-                    label = label + " (" + desc + ")"
-                addDirectoryItem( label, { PARAMETER_KEY_STATION: str(id), 
-                                           PARAMETER_KEY_MODE: MODE_PLAY }, img)
-            except Exception as e:
-                log( "Exception: " + str(e))
-                log( "HTML(show): " + str( tr))
+    url = API_URL + "/users/%s/broadcasts/now" % (user_id)
+    args = { "expand": "station", "stream": "true" }
+    broadcasts = get_json( url, args)
 
-    xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=True)
+    if not broadcasts: return False
+    items = broadcasts["data"]["items"]
+
+    if not items: return False
+    for itm in items:
+        id = itm["station_id"]
+        if (all_channels) or (id in user_channels):
+          channel = itm["station"]["name"]
+          #channel = itm["station"]["label"]
+          show = itm["title"]
+
+          if "end" in itm:
+            time_end = dateutil.parser.parse(itm["end"])
+            time_now = datetime.datetime.now(dateutil.tz.tzlocal())
+            time_left = time_end - time_now
+            time_left_m = int(round((time_left.days*24*3600 + time_left.seconds + 0.0)/60))
+          else:
+            time_left_m = -1
+
+          genre = itm["genre_id"] if "genre_id" in itm else 0   # To be translated
+
+          img = get_stationLogoURL( id)
+
+          label = channel + ": " + show
+          if time_left_m >= 0: label = "%s (noch %s')" % (label, time_left_m)
+
+          addDirectoryItem( label, { PARAMETER_KEY_STATION: str(id), 
+                                     PARAMETER_KEY_MODE: MODE_PLAY }, img)
+
+          ll = "%s - %s - genre: %s" % (id, label, genre)
+          log( ll)
+
+    xbmcplugin.endOfDirectory( handle=plugin_handle, succeeded=True)
+    return True
+
+def show_recordings():
+    url = API_URL + "/users/%s/records/ready" % (user_id)
+    args = { "limit": "500", "skip": "0" }
+    recordings = get_json( url)
+
+    if not recordings: return False
+    items = recordings["data"]["items"]
+
+    if not items: return False
+    for itm in items:
+        station_id = itm["station_id"]
+        id = itm["id"]
+        channel = itm["label"]
+        show = itm["title"]
+        rec_begin = dateutil.parser.parse(itm["begin"])
+        rec_end = dateutil.parser.parse(itm["end"])
+        duration = rec_end - rec_begin
+        duration_m = int(round((duration.days*24*3600 + duration.seconds + 0.0)/60))
+        genre = itm["genre"] if "genre" in itm else ""
+
+        img = get_stationLogoURL( station_id)
+
+        label = "%s: %s | %s (%s')" % (channel, show, genre, duration_m)
+
+        addDirectoryItem( label, { PARAMETER_KEY_STATION: str(station_id), 
+                                   PARAMETER_KEY_ASSETID: str(id), 
+                                   PARAMETER_KEY_MODE: MODE_REPLAY }, img)
+
+        ll = "%s - %s" % (id, label)
+        log( ll)
+
+    xbmcplugin.endOfDirectory( handle=plugin_handle, succeeded=True)
     return True
 
 #
 # xbmc entry point
 ############################################
-sayHi()
+#sayHi()
+
+if not plugin_params:
+    # new start
+    show_main_menu()
+    exit (1)
 
 if not ensure_login():
     exit( 1)
 
-params = dict(urlparse.parse_qsl(sys.argv[2][1:]))
+params = dict(urlparse.parse_qsl(plugin_params))
 mode = params.get(PARAMETER_KEY_MODE, "0")
 
 # depending on the mode, call the appropriate function to build the UI or play video
-if not sys.argv[2]:
-    # new start
-    if not show_channels():
-        xbmcplugin.endOfDirectory( handle=pluginhandle, succeeded=False)
+if mode == MODE_FAV:
+    if not show_channels(all_channels=False):
+        xbmcplugin.endOfDirectory( handle=plugin_handle, succeeded=False)
+
+elif mode == MODE_ALL:
+    if not show_channels(all_channels=True):
+        xbmcplugin.endOfDirectory( handle=plugin_handle, succeeded=False)
+
+elif mode == MODE_RECS:
+    if not show_recordings():
+        notify( "No recordings found!", "You do not have any recording ready")
+        xbmcplugin.endOfDirectory( handle=plugin_handle, succeeded=False)
 
 elif mode == MODE_PLAY:
     station = params[PARAMETER_KEY_STATION]
@@ -200,6 +275,26 @@ elif mode == MODE_PLAY:
         exit( 1)
 
     title = live_stream["data"]["epg"]["current"]["title"]
+    url = live_stream["data"]["stream"]["url"]
+
+    if not url: exit( 1)
+    img = get_stationLogoURL( station)
+
+    li = xbmcgui.ListItem( title, iconImage=img, thumbnailImage=img)
+    li.setProperty( "IsPlayable", "true")
+    li.setProperty( "Video", "true")
+
+    xbmc.Player().play( url, li)
+
+elif mode == MODE_REPLAY:
+    station = params[PARAMETER_KEY_STATION]
+    asset_id = params[PARAMETER_KEY_ASSETID]
+    url = API_URL + "/users/%s/stream/record/%s" % (user_id, asset_id)
+    live_stream = get_json( url)
+    if not live_stream:
+        exit( 1)
+
+    title = live_stream["data"]["record"]["title"]
     url = live_stream["data"]["stream"]["url"]
 
     if not url: exit( 1)
