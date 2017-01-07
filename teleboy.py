@@ -72,9 +72,9 @@ def ensure_login():
     except IOError:
         pass
 
-    reply = fetchHttp( TB_URL + "/watchlist/")
+    reply = fetchHttp( TB_URL + "/login")
+    cookies.save( ignore_discard=True)
     if updateSessionCookie( cookies) and updateUserID( reply):
-        cookies.save( ignore_discard=True)
         log( "login not required")
         return True
 
