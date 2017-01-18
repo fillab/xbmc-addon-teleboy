@@ -74,6 +74,7 @@ def ensure_login():
 
     reply = fetchHttp( TB_URL + "/login")
     cookies.save( ignore_discard=True)
+    reply = fetchHttp( TB_URL + "/watchlist/")
     if updateSessionCookie( cookies) and updateUserID( reply):
         log( "login not required")
         return True
