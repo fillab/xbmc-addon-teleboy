@@ -74,13 +74,17 @@ def ensure_login():
 
     reply = fetchHttp( TB_URL + "/login")
     cookies.save( ignore_discard=True)
+    reply = fetchHttp( TB_URL + "/live")
+    if updateSessionCookie( cookies) and updateUserID( reply):
+        log( "login not required")
+        return True
+
     log( "logging in...")
     url = TB_URL + "/login_check"
     args = { "login": settings.getSetting( id="login"),
              "password": settings.getSetting( id="password"),
              "keep_login": "1" }
     reply = fetchHttp( url, args, post=True)
-    reply = fetchHttp( TB_URL + "/watchlist")
 
     if updateSessionCookie( cookies) and updateUserID( reply):
         cookies.save( ignore_discard=True)
