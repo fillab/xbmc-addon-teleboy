@@ -55,11 +55,12 @@ def updateUserID( content):
     global user_id
     lines = content.split( '\n')
     for line in lines:
-        if "id: " in line:
-            dummy, uid = line.split( ": ")
-            user_id = uid[:-1]
-            log( "user id: " + user_id)
-            return True
+        if ".setId(" in line:
+            match = re.search("\.setId\((\d+)\)", line)
+            if match:
+                user_id = match.group(1)
+                log( "user id: " + user_id)
+                return True
     user_id = ''
     return False
 
