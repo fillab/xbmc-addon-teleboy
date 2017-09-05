@@ -85,7 +85,8 @@ def ensure_login():
     args = { "login": settings.getSetting( id="login"),
              "password": settings.getSetting( id="password"),
              "keep_login": "1" }
-    reply = fetchHttp( url, args, post=True)
+    hdrs = { "Referer": 'https://www.teleboy.ch/login' }
+    reply = fetchHttp( url, args, hdrs, post=True)
 
     if updateSessionCookie( cookies) and updateUserID( reply):
         cookies.save( ignore_discard=True)
@@ -108,8 +109,50 @@ def fetchHttpWithCookies( url, args={}, hdrs={}, post=False):
         return False
     return html
 
+def build_epg_line(itm, epg_format):
+    show_title = None
+    show_subtitle = None
+    genre = None
+    time_begin = None
+    time_end = None
+
+    if "title" in itm:
+        show_title = itm["title"]
+
+    if "subtitle" in itm:
+        show_subtitle = itm["subtitle"]
+
+    if "genre" in itm:
+        genre_itm = itm["genre"]
+        if genre_itm:
+            if "name_en" in genre_itm:
+                genre = genre_itm["name_en"]
+
+    if "begin" in itm:
+        time_begin = dateutil.parser.parse(itm["begin"])
+
+    if "end" in itm:
+        time_end = dateutil.parser.parse(itm["end"])
+        time_now = datetime.datetime.now(dateutil.tz.tzlocal())
+        time_left = time_end - time_now
+        time_left_m = int(round((time_left.days*24*3600 + time_left.seconds + 0.0)/60))
+    else:
+        time_left_m = -1
+
+    program_label = ": " + show_title  # Common program string
+    if epg_format == '1':
+        if time_left_m >= 0: program_label = "%s (noch %s')" % (program_label, time_left_m)
+    if epg_format == '2':
+        program_label = "%s (%s - %s)" % (program_label, time_begin.strftime('%H:%M'), time_end.strftime('%H:%M'))
+    if epg_format == '3':
+        if genre: program_label = "%s (%s)" % (program_label, genre)
+    if epg_format == '4':
+        if show_subtitle: program_label = "%s (%s)" % (program_label, show_subtitle)
+
+    return program_label
+
 def get_stationLogoURL( station):
-    return IMG_URL + "/t_station/%d/logo_s_big1.gif" % int(station)
+    return IMG_URL + "/t_station/%d/icon320_dark.png" % int(station)
 
 def get_json( url, args={}):
     if (session_cookie == ""):
@@ -159,14 +202,14 @@ def show_main_menu():
     return True
 
 def show_channels( all_channels):
-    url = API_URL + "/users/%s/stations" % (user_id)
-    user_channels = get_json( url)
+    epg_visible = settings.getSetting( id='epg_visible')
+    epg_format = settings.getSetting( id='epg_format')
 
-    if not user_channels: return False
-    user_channels = user_channels["data"]["items"]
-
-    url = API_URL + "/users/%s/broadcasts/now" % (user_id)
-    args = { "expand": "station", "stream": "true" }
+    if (all_channels):
+        url = API_URL + "/epg/broadcasts/now"
+    else:
+        url = API_URL + "/users/%s/broadcasts/now" % (user_id)
+    args = { "expand": "station,genre", "stream": "true" }
     broadcasts = get_json( url, args)
 
     if not broadcasts: return False
@@ -175,31 +218,19 @@ def show_channels( all_channels):
     if not items: return False
     for itm in items:
         id = itm["station_id"]
-        if (all_channels) or (id in user_channels):
-          channel = itm["station"]["name"]
-          #channel = itm["station"]["label"]
-          show = itm["title"]
+        channel = itm["station"]["name"]
 
-          if "end" in itm:
-            time_end = dateutil.parser.parse(itm["end"])
-            time_now = datetime.datetime.now(dateutil.tz.tzlocal())
-            time_left = time_end - time_now
-            time_left_m = int(round((time_left.days*24*3600 + time_left.seconds + 0.0)/60))
-          else:
-            time_left_m = -1
+        if epg_visible == 'true':
+            label = channel + build_epg_line( itm, epg_format)
+        else: 
+            label = channel
 
-          genre = itm["genre_id"] if "genre_id" in itm else 0   # To be translated
+        img = get_stationLogoURL( id)
+        addDirectoryItem( label, { PARAMETER_KEY_STATION: str(id), 
+                                   PARAMETER_KEY_MODE: MODE_PLAY }, img)
 
-          img = get_stationLogoURL( id)
-
-          label = channel + ": " + show
-          if time_left_m >= 0: label = "%s (noch %s')" % (label, time_left_m)
-
-          addDirectoryItem( label, { PARAMETER_KEY_STATION: str(id), 
-                                     PARAMETER_KEY_MODE: MODE_PLAY }, img)
-
-          ll = "%s - %s - genre: %s" % (id, label, genre)
-          log( ll)
+        ll = "%s - %s" % (id, label)
+        log( ll)
 
     xbmcplugin.endOfDirectory( handle=plugin_handle, succeeded=True)
     return True
